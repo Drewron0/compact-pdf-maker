@@ -75,8 +75,14 @@ class HandoutGeneratorApp:
         )
         self.notebook.add(self.review_panel, text="2. Slide Review")
 
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
         # Initial preview rendering
         self.root.after(100, self.preview_panel.refresh_preview)
+
+    def _on_tab_changed(self, event):
+        if self.notebook.select() == str(self.review_panel):
+            self.root.focus_set()
 
     def _setup_keybindings(self):
         try:
@@ -147,6 +153,7 @@ class HandoutGeneratorApp:
 
             self.review_panel.load_slides(slides)
             self.notebook.select(self.review_panel)
+            self.root.focus_set()
             self.status_var.set(f"Loaded {len(slides)} slides from {len(pdf_paths)} PDF(s). Ready for review.")
         except Exception as e:
             messagebox.showerror("Error Loading PDFs", f"An error occurred while loading slides:\n{str(e)}")

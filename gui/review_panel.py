@@ -26,7 +26,7 @@ class SlideReviewPanel(ttk.Frame):
     """
 
     def __init__(self, parent, on_compile_callback: Callable[[], None], on_status_msg: Callable[[str], None]):
-        super().__init__(parent)
+        super().__init__(parent, takefocus=True)
         self.on_compile_callback = on_compile_callback
         self.on_status_msg = on_status_msg
 
@@ -118,6 +118,41 @@ class SlideReviewPanel(ttk.Frame):
         self.big_img_lbl.pack(fill=tk.BOTH, expand=True)
 
         self.viewer_container.bind("<Configure>", self._on_viewer_resize)
+
+        for w in (self, self.viewer_container, self.big_img_lbl, self.canvas, self.filmstrip_inner, batch_bar, ctrl_bar):
+            w.bind("<Button-1>", lambda e: self.clear_input_focus(), add="+")
+
+        # Setup top-level window key bindings
+        self.after(100, self._setup_global_keybindings)
+
+    def _setup_global_keybindings(self):
+        top = self.winfo_toplevel()
+        for key_pattern in ("<Left>", "<Right>", "<Shift-Left>", "<Shift-Right>", 
+                            "<Control-Shift-Left>", "<Control-Shift-Right>"):
+            top.bind(key_pattern, self._handle_arrow_key, add="+")
+
+    def _handle_arrow_key(self, event):
+        if not self.raw_slides:
+            return
+
+        focused = self.focus_get()
+        if isinstance(focused, (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox)):
+            return
+
+        keysym = event.keysym
+        if keysym not in ("Left", "Right"):
+            return
+
+        delta = -1 if keysym == "Left" else 1
+
+        is_shift = bool(event.state & 0x0001)
+        is_ctrl  = bool(event.state & 0x0004) or bool(event.state & 0x20000)
+
+        self.nav_slide(delta, extend_selection=is_shift, preserve_ctrl=(is_shift and is_ctrl))
+        return "break"
+
+    def clear_input_focus(self):
+        self.winfo_toplevel().focus_set()
 
     # --- Scroll Helpers ---
 
@@ -216,6 +251,7 @@ class SlideReviewPanel(ttk.Frame):
     # --- Mouse Selection ---
 
     def _on_thumb_press(self, event, idx: int):
+        self.clear_input_focus()
         self.drag_start_idx = idx
         self.is_dragging = False
 
@@ -225,7 +261,11 @@ class SlideReviewPanel(ttk.Frame):
         if is_shift:
             start = min(self.anchor_idx, idx)
             end   = max(self.anchor_idx, idx)
-            self.selected_indices = set(range(start, end + 1))
+            new_range = set(range(start, end + 1))
+            if is_ctrl:
+                self.selected_indices.update(new_range)
+            else:
+                self.selected_indices = new_range
             self.current_idx = idx
         elif is_ctrl:
             if idx in self.selected_indices and len(self.selected_indices) > 1:
@@ -308,14 +348,26 @@ class SlideReviewPanel(ttk.Frame):
             self.raw_slides[i]['kept'] = new_state
         self._refresh_ui()
 
-    def nav_slide(self, delta: int):
+    def nav_slide(self, delta: int, extend_selection: bool = False, preserve_ctrl: bool = False):
         if not self.raw_slides:
             return
         new_idx = self.current_idx + delta
         if 0 <= new_idx < len(self.raw_slides):
             self.current_idx = new_idx
-            self.anchor_idx  = new_idx
-            self.selected_indices = {new_idx}
+
+            if extend_selection:
+                start = min(self.anchor_idx, self.current_idx)
+                end   = max(self.anchor_idx, self.current_idx)
+                new_range = set(range(start, end + 1))
+
+                if preserve_ctrl:
+                    self.selected_indices.update(new_range)
+                else:
+                    self.selected_indices = new_range
+            else:
+                self.anchor_idx = new_idx
+                self.selected_indices = {new_idx}
+
             self._refresh_ui()
             self._scroll_to_active()
 
