@@ -3,6 +3,9 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 import math
 import os
 import sys
+import platform
+import subprocess
+from tkinter import filedialog
 
 # Try importing tkinter for the GUI human filter
 try:
@@ -13,46 +16,12 @@ except ImportError:
     HAS_TKINTER = False
 
 
-def prompt_user_config():
-    """Prompts user for all parameters with defaults."""
-    print("=" * 60)
-    print("       A4 SLIDE HANDOUT GENERATOR CONFIGURATION")
-    print("=" * 60)
-
-    def get_input(prompt, default, val_type=str):
-        user_val = input(f"{prompt} [Default: {default}]: ").strip()
-        if not user_val:
-            return default
-        if val_type == bool:
-            return user_val.lower() in ['y', 'yes', 'true', '1']
-        return val_type(user_val)
-
-    input_dir = get_input("Input directory path", "./input")
-    output_dir = get_input("Output directory path", "./handouts_output")
-    output_name = get_input("Output filename", "Interactive_Handout.pdf")
-    cols = get_input("Number of Columns (Cols)", 4, int)
-    rows = get_input("Number of Rows (Rows)", 3, int)
-    landscape = get_input("Landscape mode? (y/n)", True, bool)
-    preview_grid = get_input("Visualize layout preview before generating? (y/n)", True, bool)
-    human_filter = get_input("Enable Human Filter (review/skip slides manually)? (y/n)", False, bool)
-
-    print("=" * 60)
-    return {
-        "input_dir": input_dir,
-        "output_dir": output_dir,
-        "output_name": output_name,
-        "cols": cols,
-        "rows": rows,
-        "landscape": landscape,
-        "preview_grid": preview_grid,
-        "human_filter": human_filter
-    }
-
-
-def visualize_grid_layout(cols, rows, landscape):
-    """Generates and opens a mockup layout preview image."""
-    A4_W, A4_H = (3508, 2480) if landscape else (2480, 3508)
+def create_preview_image(cols, rows, landscape):
+    """Generates a mockup layout preview image to be displayed inside the GUI."""
+    if cols < 1: cols = 1
+    if rows < 1: rows = 1
     
+    A4_W, A4_H = (3508, 2480) if landscape else (2480, 3508)
     MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 30, 40, 70
     PADDING_X, PADDING_Y = 15, 15
 
@@ -89,22 +58,115 @@ def visualize_grid_layout(cols, rows, landscape):
             draw.rectangle([x + 10, slide_y, x + slot_w - 10, slide_y + slide_h], outline="#80868b", width=2, fill="#e8eaed")
             
             label = f"Slide ({r+1},{c+1})"
-            bbox = draw.textbbox((0, 0), label, font=sub_font)
-            txt_w = bbox[2] - bbox[0]
+            try:
+                bbox = draw.textbbox((0, 0), label, font=sub_font)
+                txt_w = bbox[2] - bbox[0]
+            except AttributeError:
+                txt_w = draw.textsize(label, font=sub_font)[0]
+                
             draw.text((x + (slot_w - txt_w) // 2, slide_y + (slide_h // 2) - 20), label, fill="#3c4043", font=sub_font)
 
     page_lbl = "- Page 1 -"
-    bbox = draw.textbbox((0, 0), page_lbl, font=font)
-    draw.text(((A4_W - (bbox[2] - bbox[0])) // 2, A4_H - 60), page_lbl, fill="black", font=font)
+    try:
+        bbox = draw.textbbox((0, 0), page_lbl, font=font)
+        txt_w = bbox[2] - bbox[0]
+    except AttributeError:
+        txt_w = draw.textsize(page_lbl, font=font)[0]
+        
+    draw.text(((A4_W - txt_w) // 2, A4_H - 60), page_lbl, fill="black", font=font)
 
-    preview_img = canvas.copy()
-    preview_img.thumbnail((1200, 1200))
-    preview_img.show(title=f"Layout Preview ({cols}x{rows})")
+    return canvas
 
-    confirm = input(f"\n[Preview] Grid layout created ({cols} columns x {rows} rows). Proceed? (y/n) [y]: ").strip().lower()
-    if confirm in ['n', 'no']:
-        print("Cancelled by user.")
+def run_config_gui():
+    """Tkinter GUI for configuration with side-by-side dynamic preview."""
+    if not HAS_TKINTER:
+        print("[Error] Tkinter not available. Please install it to use the GUI.")
+        sys.exit(1)
+
+    config = {}
+    root = tk.Tk()
+    root.title("Handout Generator Configuration")
+    root.geometry("900x550")
+
+    # Variables
+    input_var = tk.StringVar(value="./input")
+    output_var = tk.StringVar(value="./handouts_output")
+    filename_var = tk.StringVar(value="Interactive_Handout.pdf")
+    cols_var = tk.IntVar(value=4)
+    rows_var = tk.IntVar(value=3)
+    landscape_var = tk.BooleanVar(value=True)
+    human_filter_var = tk.BooleanVar(value=False)
+
+    # Layout Frames
+    left_frame = tk.Frame(root, padx=20, pady=20)
+    left_frame.pack(side="left", fill="both", expand=True)
+
+    right_frame = tk.Frame(root, padx=20, pady=20, bg="#e8eaed")
+    right_frame.pack(side="right", fill="both", expand=True)
+
+    # Dynamic Preview Updater
+    preview_lbl = tk.Label(right_frame, bg="#e8eaed")
+    preview_lbl.pack(expand=True)
+
+    def update_preview(*args):
+        try:
+            c, r = cols_var.get(), rows_var.get()
+        except tk.TclError:
+            return  # Handle empty spinbox during typing
+        
+        img = create_preview_image(c, r, landscape_var.get())
+        img.thumbnail((450, 450))
+        tk_img = ImageTk.PhotoImage(img)
+        preview_lbl.config(image=tk_img)
+        preview_lbl.image = tk_img
+
+    cols_var.trace_add("write", update_preview)
+    rows_var.trace_add("write", update_preview)
+    landscape_var.trace_add("write", update_preview)
+
+    # UI Controls
+    tk.Label(left_frame, text="Input Directory:", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", pady=5)
+    tk.Entry(left_frame, textvariable=input_var, width=30).grid(row=0, column=1, pady=5)
+    tk.Button(left_frame, text="Browse", command=lambda: input_var.set(filedialog.askdirectory() or input_var.get())).grid(row=0, column=2, padx=5)
+
+    tk.Label(left_frame, text="Output Directory:", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", pady=5)
+    tk.Entry(left_frame, textvariable=output_var, width=30).grid(row=1, column=1, pady=5)
+    tk.Button(left_frame, text="Browse", command=lambda: output_var.set(filedialog.askdirectory() or output_var.get())).grid(row=1, column=2, padx=5)
+
+    tk.Label(left_frame, text="Output Filename:", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky="w", pady=5)
+    tk.Entry(left_frame, textvariable=filename_var, width=30).grid(row=2, column=1, pady=5)
+
+    tk.Label(left_frame, text="Columns:", font=("Arial", 10, "bold")).grid(row=3, column=0, sticky="w", pady=5)
+    tk.Spinbox(left_frame, from_=1, to=10, textvariable=cols_var, width=5).grid(row=3, column=1, sticky="w", pady=5)
+
+    tk.Label(left_frame, text="Rows:", font=("Arial", 10, "bold")).grid(row=4, column=0, sticky="w", pady=5)
+    tk.Spinbox(left_frame, from_=1, to=10, textvariable=rows_var, width=5).grid(row=4, column=1, sticky="w", pady=5)
+
+    tk.Checkbutton(left_frame, text="Landscape Mode", variable=landscape_var, font=("Arial", 10, "bold")).grid(row=5, column=0, columnspan=2, sticky="w", pady=10)
+    tk.Checkbutton(left_frame, text="Enable Human Filter (Manual Review)", variable=human_filter_var, font=("Arial", 10, "bold")).grid(row=6, column=0, columnspan=2, sticky="w", pady=5)
+
+    def submit():
+        config.update({
+            "input_dir": input_var.get(),
+            "output_dir": output_var.get(),
+            "output_name": filename_var.get(),
+            "cols": cols_var.get(),
+            "rows": rows_var.get(),
+            "landscape": landscape_var.get(),
+            "preview_grid": False, # Handled internally by GUI now
+            "human_filter": human_filter_var.get()
+        })
+        root.destroy()
+
+    tk.Button(left_frame, text="Generate Handout", command=submit, bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), width=20).grid(row=7, column=0, columnspan=3, pady=30)
+
+    update_preview() # Initial draw
+    root.mainloop()
+
+    if not config:
+        print("Configuration cancelled by user.")
         sys.exit(0)
+    return config
 
 
 def apply_human_filter_gui(all_slides):
@@ -228,9 +290,6 @@ def generate_handout_pdf(config):
         print(f"No PDF files found in '{input_dir}'.")
         return
 
-    if config["preview_grid"]:
-        visualize_grid_layout(cols, rows, landscape)
-
     print(f"\nExtracting slides from {len(pdf_files)} PDF file(s)...")
     raw_slides = []
 
@@ -332,7 +391,18 @@ def generate_handout_pdf(config):
         )
         print(f"\n Output saved to: {output_path}")
 
+        abs_output_dir = os.path.abspath(output_dir)
+        try:
+            if platform.system() == "Windows":
+                os.startfile(abs_output_dir)
+            elif platform.system() == "Darwin":
+                subprocess.call(["open", abs_output_dir])
+            else:
+                subprocess.call(["xdg-open", abs_output_dir])
+        except Exception as e:
+            print(f"Could not open output folder automatically: {e}")
+
 
 if __name__ == "__main__":
-    user_config = prompt_user_config()
+    user_config = run_config_gui()
     generate_handout_pdf(user_config)
