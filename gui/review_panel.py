@@ -345,7 +345,7 @@ class SlideReviewPanel(ttk.Frame):
         if sel_count > 1:
             lo = min(self.selected_indices) + 1
             hi = max(self.selected_indices) + 1
-            self.sel_count_lbl.config(text=f"{sel_count} selected  (#{lo} – #{hi})")
+            self.sel_count_lbl.config(text=f"{sel_count} selected  (#{lo} - #{hi})")
         elif sel_count == 1:
             self.sel_count_lbl.config(text=f"1 selected  (#{self.current_idx + 1})")
         else:
