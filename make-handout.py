@@ -3,7 +3,7 @@ from PIL import Image, ImageDraw, ImageFont
 import math
 import os
 
-def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, landscape=True):
+def process_maximized_handout(input_dir, output_dir, output_name, cols=4, rows=3, landscape=True):
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, output_name)
 
@@ -13,20 +13,22 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
         print(f"No PDF files found in '{input_dir}'.")
         return
 
-    # Set canvas orientation dynamically based on landscape flag (300 DPI A4)
+    # Canvas dimensions for 300 DPI
     if landscape:
         A4_WIDTH, A4_HEIGHT = 3508, 2480
     else:
         A4_WIDTH, A4_HEIGHT = 2480, 3508
     
-    # Minimized margins and padding to maximize slide display area
-    MARGIN = 80
-    PADDING_X = 20
-    PADDING_Y = 60  # Vertical spacing for initial titles
+    # Ultra-tight spacing to maximize image size
+    MARGIN_X = 30
+    MARGIN_TOP = 40
+    MARGIN_BOTTOM = 70  # Slightly larger to accommodate page numbers
+    PADDING_X = 15
+    PADDING_Y = 15      # Minimal space between rows
 
     try:
         font = ImageFont.truetype("arial.ttf", 45)
-        page_font = ImageFont.truetype("arial.ttf", 50)
+        page_font = ImageFont.truetype("arial.ttf", 40)
     except IOError:
         font = ImageFont.load_default()
         page_font = font
@@ -43,7 +45,6 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
             pix = page.get_pixmap(dpi=300)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             
-            # Record title only for the first slide of a document
             title = pdf_file.replace('.pdf', '') if slide_idx == 0 else ""
             all_slides.append((img, title))
 
@@ -53,9 +54,9 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
 
     out_images = []
 
-    # Dynamic slot dimensions recalculate automatically according to aspect ratio
-    slot_w = (A4_WIDTH - 2 * MARGIN - (cols - 1) * PADDING_X) // cols
-    slot_h = (A4_HEIGHT - 2 * MARGIN - (rows - 1) * PADDING_Y) // rows
+    # Calculate absolute maximum slot dimensions
+    slot_w = (A4_WIDTH - (2 * MARGIN_X) - (cols - 1) * PADDING_X) // cols
+    slot_h = (A4_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM - (rows - 1) * PADDING_Y) // rows
 
     # 2. Render slides into grid
     for p in range(total_pages):
@@ -69,21 +70,19 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
 
             img, title = all_slides[global_idx]
 
-            # Fit slide within target slot bounds
-            img.thumbnail((slot_w, slot_h - 50))
+            # Scale slide to the absolute limits of the slot (no artificial subtraction)
+            img.thumbnail((slot_w, slot_h))
 
             row = i // cols
             col = i % cols
 
-            x = MARGIN + col * (slot_w + PADDING_X)
-            y = MARGIN + row * (slot_h + PADDING_Y)
+            x = MARGIN_X + col * (slot_w + PADDING_X)
+            y = MARGIN_TOP + row * (slot_h + PADDING_Y)
 
             x_offset = x + (slot_w - img.width) // 2
-            y_offset = y + (slot_h - img.height) // 2
-
-            # Render title above the slide if it's the start of a new file
+            
+            # If it's a title slide, pin the image to the bottom of the slot and draw text above
             if title:
-                y_offset = y + 50 
                 try:
                     bbox = draw.textbbox((0, 0), title, font=font)
                     text_w = bbox[2] - bbox[0]
@@ -92,10 +91,16 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
                 
                 text_x = x + (slot_w - text_w) // 2
                 draw.text((text_x, y), title, fill="darkblue", font=font)
+                
+                # Shift image down slightly to clear the title text
+                y_offset = y + 55
+            else:
+                # Vertically center normal slides within the slot
+                y_offset = y + (slot_h - img.height) // 2
 
             canvas.paste(img, (x_offset, y_offset))
 
-        # 3. Add page numbers at the bottom center of the page
+        # 3. Add page numbers at the bottom center
         page_text = f"- {p + 1} -"
         try:
             bbox = draw.textbbox((0, 0), page_text, font=page_font)
@@ -103,7 +108,7 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
         except AttributeError:
             text_w = draw.textsize(page_text, font=page_font)[0]
             
-        draw.text(((A4_WIDTH - text_w) // 2, A4_HEIGHT - MARGIN + 10), page_text, fill="black", font=page_font)
+        draw.text(((A4_WIDTH - text_w) // 2, A4_HEIGHT - 50), page_text, fill="black", font=page_font)
 
         out_images.append(canvas)
 
@@ -114,19 +119,19 @@ def process_compact_handout(input_dir, output_dir, output_name, cols=5, rows=4, 
             save_all=True,
             append_images=out_images[1:]
         )
-        print(f"Success! Processed {total_slides} slides into {total_pages} page(s) ({'Landscape' if landscape else 'Portrait'}). Saved to: {output_path}")
+        print(f"Success! Processed {total_slides} slides into {total_pages} page(s). Saved to: {output_path}")
 
 
 # Configuration Setup
 INPUT_DIRECTORY = "./input"
 OUTPUT_DIRECTORY = "./handouts_output"
-OUTPUT_NAME = "Combined_Course_Handout_Landscape.pdf"
+OUTPUT_NAME = "Maximized_Course_Handout_Landscape.pdf"
 
-process_compact_handout(
+process_maximized_handout(
     input_dir=INPUT_DIRECTORY,
     output_dir=OUTPUT_DIRECTORY,
     output_name=OUTPUT_NAME,
-    cols=4,         # Recommended: 4 cols for Landscape
-    rows=5,         # Recommended: 3 rows for Landscape
-    landscape=True  # Set to True for Landscape orientation, False for Portrait
+    cols=4,         
+    rows=5,         
+    landscape=True  
 )
