@@ -5,7 +5,7 @@
 3. Install all required dependencies using the following command:
 
 ```bash
-   pip install -r requirements.txt
+pip install -r requirements.txt
 
 ```
 
